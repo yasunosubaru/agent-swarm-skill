@@ -1,0 +1,29 @@
+# ---- 本地配置与凭据（绝不入库）----
+config.json
+deploy/.env
+deploy/encryption_key
+deploy/opencode-config/auth.json
+deploy/opencode-config/opencode.jsonc
+logs/
+
+# 运行时注入到仪表盘里的真实配置（含 API Key）
+swarm-config.js
+
+# ---- 依赖与构建产物 ----
+node_modules/
+dist/
+*.zip
+*.exe
+
+# ---- 日志与临时文件 ----
+*.log
+ui-dev.log
+ui-install.log
+*.tmp
+
+# ---- 编辑器 ----
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
