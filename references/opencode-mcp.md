@@ -85,9 +85,9 @@ user 端点则需要 `aswt_` token，且 token 必须映射到一个 **active** 
 
 ---
 
-## ⚠️ 首次派活前先预热（否则必然失败一次）
+## ⚠️ 首次派活超时？（v1.2.0 已根治）
 
-新装 / 重建卷之后，**第一次**派活几乎必定失败：
+老版本会遇到：
 
 ```
 Spawn failed: opencode session create timed out after 30000ms
@@ -99,18 +99,33 @@ Spawn failed: opencode session create timed out after 30000ms
 > list, and on a cold container that call has hung… Bound it with the same budget
 > as the server start so a hang fails fast as a spawn failure.
 
-也就是**冷容器**首次建会话要装插件 + 拉模型列表，30 秒预算不够。
-缓存热了以后就正常了（实测第二次起全部秒回）。
+**根因是两处缓存都在容器可写层里**，所以每次 `docker compose up` 重建容器都会被清空，
+下次派活又得重新装插件 + 拉模型，30 秒预算扛不住：
 
-**预热方法**（注意 `-u 1001:1001`，原因见下一节）：
+| 缓存 | 路径 |
+|---|---|
+| opencode 数据（db / log / 模型列表） | `/home/worker/.local/share/opencode` |
+| 插件的 node_modules | `/workspace/.opencode` |
+
+**修法**（本仓库 v1.2.0 的 compose 已包含）：把这两个目录挂成命名卷。
+
+```yaml
+- swarm_opencode_w1:/home/worker/.local/share/opencode
+- swarm_ocws_w1:/workspace/.opencode
+```
+
+加上之后实测：重建容器 → **第一次**派活 6 秒完成（`407 * 63 = 25641`，正确）。
+
+> 这两个目录都不是 agent 的工作数据（agent 数据在 `/workspace/personal`，本来就有卷），
+> 挂卷不会丢成果。
+
+如果你用的是旧 compose、暂时不想改，可以手动预热一次：
 
 ```powershell
 foreach ($c in @("agentswarm-worker-1-1","agentswarm-worker-2-1","agentswarm-lead-1")) {
   docker exec -u 1001:1001 $c sh -c 'opencode run --model <provider>/<model> "reply OK"'
 }
 ```
-
-或者更省事：**失败两次就自然热了**。首次失败不影响服务，只影响那一个任务。
 
 ---
 

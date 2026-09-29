@@ -222,12 +222,21 @@ ports:
 
 ### F2. 任务 `failed`：`opencode session create timed out after 30000ms`
 
-**原因**：冷容器首次建会话要装插件 + 拉模型列表，30 秒预算不够。
-源码 `opencode-adapter.ts` 注释里写明了这个已知行为。
+**原因**：冷容器首次建 opencode 会话要**装插件（npm install）+ 拉模型列表**，30 秒预算不够。
+源码 `opencode-adapter.ts` 的注释里写明了这个已知行为。
 
-**这是新装 / 重建卷后的第一次派活专属**。缓存热了就正常（实测第二次起都很快）。
+**v1.2.0 起已根治。** 之前每次 `compose up` 重建容器都会触发一次，
+因为两处缓存都在**容器可写层**里，重建即清空：
 
-**修法**：预热一次
+| 缓存 | 路径 | v1.2.0 的处理 |
+|---|---|---|
+| opencode 数据（db / log / 模型列表） | `/home/worker/.local/share/opencode` | 挂卷 `swarm_opencode_*` |
+| 插件的 node_modules | `/workspace/.opencode` | 挂卷 `swarm_ocws_*` |
+
+现在重建容器后**第一次派活就能成功**（实测 6 秒完成）。
+如果你的 compose 还是旧的、没有这两个卷，就会周期性撞上这个问题。
+
+临时绕过（预热一次）：
 
 ```powershell
 foreach ($c in @("agentswarm-worker-1-1","agentswarm-worker-2-1","agentswarm-lead-1")) {
@@ -235,7 +244,9 @@ foreach ($c in @("agentswarm-worker-1-1","agentswarm-worker-2-1","agentswarm-lea
 }
 ```
 
-不预热也行 —— 失败两次自然就热了，只影响那两条任务。
+> 顺带一提：`/workspace/.opencode` 和 `/home/worker/.local/share/opencode`
+> 都不是 agent 自己的数据（agent 数据在 `/workspace/personal`，那个本来就有卷），
+> 所以把它们挂成卷不会丢 agent 的工作成果。
 
 ### F3. 任务 `failed`：`PermissionDenied: FileSystem.open (.../opencode/log/opencode.log)`
 
