@@ -191,6 +191,91 @@ $r.messages | Format-List status, deliveredMode, handledNote
 
 ---
 
+## F. 三个新坑（v1.1.0 修的）
+
+### F1. 容器起不来：`ports are not available ... access permissions`
+
+```
+Error response from daemon: ports are not available: exposing port TCP 0.0.0.0:7433
+  -> 127.0.0.1:0: listen tcp 0.0.0.0:7433: bind: An attempt was made to access a
+  socket in a way forbidden by its access permissions.
+```
+
+**原因**：端口落在 Windows/Hyper-V 的**动态保留段**里。查一下：
+
+```powershell
+netsh int ipv4 show excludedportrange protocol=tcp
+```
+
+本机实测 `7346-7445` 被整段保留，7433 正好在里面。保留段每次开机可能变。
+
+**修法**：只改**主机侧**映射，容器内端口不用动。
+本仓库的 compose 已把 agent-fs 映射成 `6433:7433`：
+
+```yaml
+ports:
+  - "6433:7433"     # 容器内仍是 7433（AGENT_FS_API_URL=http://agent-fs:7433 不变）
+```
+
+`7433` 在容器网络里只被 `AGENT_FS_API_URL` 和容器内 healthcheck 用到，
+主机侧没有任何东西依赖它，所以改主机端口是安全的。
+
+### F2. 任务 `failed`：`opencode session create timed out after 30000ms`
+
+**原因**：冷容器首次建会话要装插件 + 拉模型列表，30 秒预算不够。
+源码 `opencode-adapter.ts` 注释里写明了这个已知行为。
+
+**这是新装 / 重建卷后的第一次派活专属**。缓存热了就正常（实测第二次起都很快）。
+
+**修法**：预热一次
+
+```powershell
+foreach ($c in @("agentswarm-worker-1-1","agentswarm-worker-2-1","agentswarm-lead-1")) {
+  docker exec -u 1001:1001 $c sh -c 'opencode run --model <provider>/<model> "reply OK"'
+}
+```
+
+不预热也行 —— 失败两次自然就热了，只影响那两条任务。
+
+### F3. 任务 `failed`：`PermissionDenied: FileSystem.open (.../opencode/log/opencode.log)`
+
+**原因**：容器 `Config.User=root`（entrypoint 内部才降到 uid 1001），
+所以 `docker exec` **默认就是 root**。你一旦在容器里以 root 跑过 opencode
+或任何写 HOME 的东西，`/home/worker/.local/share/opencode/` 下的文件就变成 root 所有，
+worker（uid 1001）再也写不进去。
+
+> 根子在于：镜像里本来没有 `/home/worker/.local/share/opencode`，
+> 是 bind-mount `opencode-config/auth.json` 时被 Docker 以 root 创建的。
+
+**修法**：
+
+```powershell
+foreach ($c in @("agentswarm-worker-1-1","agentswarm-worker-2-1","agentswarm-lead-1")) {
+  docker exec -u 0 $c sh -c 'chown -R 1001:1001 /home/worker/.local/share/opencode /home/worker/.config/opencode /home/worker/.cache'
+}
+```
+
+v1.1.0 起 compose 的 entrypoint 里带了 `permission-repair` 段，每次启动自动纠正这三个目录，
+所以只有**手工以 root 进容器操作**才会踩到。
+
+**以后一律写 `-u 1001:1001`**，别用默认身份。
+
+---
+
+## G. 接 OpenCode MCP
+
+`/mcp` 报 `401 {"error":"Missing X-Agent-ID header"}` 是因为用错了端点 ——
+那是给 swarm 自己的 worker 用的（agent 视角）。
+给 OpenCode 用的终端用户端点是 **`/mcp-user`**，用 `aswt_` token。
+
+完整说明见 [OPENCODE-MCP.md](OPENCODE-MCP.md)，一键脚本：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\mcp\connect-opencode.ps1
+```
+
+---
+
 ## E. 一键排查清单
 
 ```powershell

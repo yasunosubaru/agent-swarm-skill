@@ -5,6 +5,7 @@
 > 并交付一个桌面 GUI 控制台 + 可连续对话、运行中可插话的聊天窗口。
 
 配套的桌面程序本体在 **[yasunosubaru/agent-swarm-desktop](https://github.com/yasunosubaru/agent-swarm-desktop)**（本 Skill 的 `scripts/bootstrap.ps1` 会去克隆它）。
+    ├── connect-opencode.ps1          一键接上 OpenCode MCP
 
 ---
 
@@ -25,12 +26,14 @@ Skill 把这三件事的**正确做法和踩过的坑**写成可执行指引。
 agent-swarm-skill/
 ├── SKILL.md                          主指引：流程、接口、坑速查、安全红线
 ├── references/
+│   ├── opencode-mcp.md               接入 OpenCode：/mcp vs /mcp-user、token、6 个工具
 │   ├── deployment.md                 架构、配置、端口、卷、Dockerfile 补丁点
 │   ├── chat-api.md                   对话页三接口、插话时序陷阱、session-logs 兜底
 │   ├── windows-powershell.md         BOM / 编码 / WPF / 单实例 / 进程排查 / 快捷方式
 │   └── troubleshooting.md            按症状索引的排障手册
 └── scripts/
     ├── bootstrap.ps1                 克隆桌面仓库并跑安装向导
+    ├── connect-opencode.ps1          一键接上 OpenCode MCP
     └── verify.ps1                    端到端自检（含真实任务往返）
 ```
 
@@ -62,6 +65,7 @@ description: 在 Windows 上把 agent-swarm 部署成本地 AI 小团队，并�
 ```powershell
 # 克隆桌面程序并安装
 powershell -ExecutionPolicy Bypass -File .\scripts\bootstrap.ps1
+    ├── connect-opencode.ps1          一键接上 OpenCode MCP
 
 # 部署完成后自检（含真的发一次任务）
 powershell -ExecutionPolicy Bypass -File .\scripts\verify.ps1
@@ -76,6 +80,8 @@ powershell -ExecutionPolicy Bypass -File .\scripts\verify.ps1
 
 | 主题 | 结论 |
 |---|---|
+| 接 OpenCode | 终端用户端点是 **`/mcp-user`**（`aswt_` token）；`/mcp` 是给 worker 用的，要 `X-Agent-ID` |
+| 接入脚本 | `scripts/connect-opencode.ps1`（幂等，失败自动回滚），6 个工具：send-task / get-tasks / get-task-details / steer-task / cancel-task / task-action |
 | 对话怎么实现 | `POST /api/tasks` + 请求体 `parentTaskId` 串成会话链 |
 | 插话怎么实现 | `POST /api/tasks/{id}/steer`，`{message, mode:"steer"}` |
 | 插话的结果 | `deliveredMode` 通常是 `queue`，**结果被延后覆盖** → 必须等 `steering-messages` 全部 `handled` 再读 `output` |

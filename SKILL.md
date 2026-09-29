@@ -55,6 +55,33 @@ cd agent-swarm-desktop
 powershell -ExecutionPolicy Bypass -File .\setup.ps1
 ```
 
+### 1.1 接进 OpenCode（推荐，交付后顺手做掉）
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\mcp\connect-opencode.ps1
+```
+
+脚本自己会建用户、铸 token、改写 `~/.config/opencode/opencode.jsonc`、实跑握手验证、失败自动回滚。
+**幂等**，可重复执行。
+
+之后用户在 OpenCode 对话里就能直接派活，拿到 6 个工具：
+
+| 工具 | 作用 |
+|---|---|
+| `send-task` | 派一个任务 |
+| `get-tasks` | 列出该用户发起的任务 |
+| `get-task-details` | 任务详情（含 output / failureReason） |
+| `steer-task` | **任务运行中追加要求** |
+| `cancel-task` | 取消 |
+| `task-action` | 挪 backlog |
+
+**接的是 `/mcp-user`（`aswt_` token），不是 `/mcp`。** 两者区别见
+`references/opencode-mcp.md`，用错会拿到
+`401 {"error":"Missing X-Agent-ID header"}`。
+
+验证方式：让助手用 `send-task` 发一个**算术题**，再 `get-task-details` 取回答案比对。
+这样能同时验证「派活成功」和「结果正确」。
+
 ---
 
 ## 2. 部署流程
@@ -146,12 +173,17 @@ powershell -File .\verify.ps1
 | `Invoke-RestMethod` 发中文变 `???` | PS 5.1 默认按 ISO-8859-1 发 | `[System.Text.Encoding]::UTF8.GetBytes($json)` 当 body |
 | 赋字符串报 SwitchParameter 类型错 | `$script:chat` 撞上了 `-Chat` 参数（PS 变量名不分大小写） | 改名 `$script:chatUrl` |
 | 排查进程时 shell 自己被杀掉 | 过滤 `CommandLine -like "*x.ps1*"` 匹配到了自己 | 加 `$_.ProcessId -ne $PID` |
+| 自定义函数传 `-Color` 却不生效 | 函数第二参是**位置参数** `$c`，`-Color` 被 `$args` 静默吞掉 | 写 `Say "文字" "Green"`，别用 `-Color` |
 | `credStatus.liveTest.ok=false` | **误报**，探针只查三个 *_API_KEY 环境变量 | 看 `ready=true` + `satisfiedBy=file` |
 | agent 说写不进 `/workspace/shared` | 根目录 root:root 755，agent 是 uid 1001 无 sudo | 写 `/workspace/personal` 或 `/workspace/shared/misc/<id>/` |
 | `docker compose up` 卡住 | 在重新构建 | 加 `--no-build` |
 | 插话没生效 | `deliveredMode=queue`，结果被延后覆盖 | 等 `steering-messages` 全部 `handled` 再读 output |
 | 任务完成但 `output` 是空的 | 纯文本回复的常态 | 从 `session-logs` 提取最后一段文本 |
 | 拉不动基础镜像 | Docker VM 直连 ghcr/quay 不通 | 宿主 CONNECT 代理 + 镜像源前缀 Dockerfile |
+| **容器起不来** `ports are not available` | 主机端口落在 Windows/Hyper-V **动态保留段** | `netsh int ipv4 show excludedportrange protocol=tcp` 查；只改主机侧映射（容器内端口不动） |
+| **首次派活必失败** `opencode session create timed out` | 冷容器首次建会话要装插件+拉模型，30s 预算不够（源码已知行为） | 再发一次即好；或 `docker exec -u 1001:1001 <c> opencode run ...` 预热 |
+| **任务失败** `PermissionDenied: opencode.log` | `docker exec` 默认 **root**（`Config.User=root`），污染了 opencode 的 db/log 属主 | `docker exec -u 0 <c> chown -R 1001:1001 /home/worker/.local/share/opencode`；compose entrypoint 已加 `permission-repair` 自动兜底 |
+| `/mcp` 返回 `Missing X-Agent-ID` | 用错端点 | 终端用户用 `/mcp-user` + `aswt_` token |
 
 完整版：`references/troubleshooting.md`。
 PowerShell/编码专项：`references/windows-powershell.md`。
@@ -163,10 +195,12 @@ PowerShell/编码专项：`references/windows-powershell.md`。
 | 文件 | 内容 |
 |---|---|
 | `references/chat-api.md` | 对话页三个接口的完整用法、插话时序陷阱、session-logs 兜底 |
+| `references/opencode-mcp.md` | 接入 OpenCode：`/mcp` vs `/mcp-user`、token、6 个工具、冷启动与属主坑 |
 | `references/deployment.md` | 架构图、配置项、端口、卷、Dockerfile 补丁点 |
 | `references/windows-powershell.md` | BOM / 编码 / WPF / 单实例 / 进程排查 |
 | `references/troubleshooting.md` | 按症状索引的排障手册 |
 | `scripts/bootstrap.ps1` | 克隆桌面仓库并跑 setup |
+| `scripts/connect-opencode.ps1` | 一键接上 OpenCode MCP |
 | `scripts/verify.ps1` | 端到端自检（与桌面仓库同款） |
 
 ---
