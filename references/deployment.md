@@ -65,7 +65,7 @@
 |---|---|
 | `API_KEY` | 本地 Swarm API 鉴权 Key，setup 随机生成的 64 位十六进制 |
 | `HARNESS_PROVIDER` | `opencode` / `openrouter` / `anthropic` / `openai` |
-| `MODEL_OVERRIDE` | 留空 = harness 自选；填如 `commandcode/deepseek/deepseek-v4-flash` |
+| `MODEL_OVERRIDE` | 留空 = harness 自选；填如 `<provider>/<model>` |
 | `MCP_BASE_URL` / `APP_URL` | 容器内互调 / 浏览器访问地址 |
 | `SWARM_SRC` | `docker build` 的 context |
 | `OPENROUTER_API_KEY` 等 | 仅当 harness 不是 opencode 时需要 |
